@@ -1,31 +1,41 @@
 import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xDD0000);
 const camera = new THREE.PerspectiveCamera(
-  75,
+  45,
   window.innerWidth / window.innerHeight,
-  0.1,
-  1000
+  1,
+  10000
 );
 const renderer = new THREE.WebGLRenderer();
-const cylinder = new THREE.Mesh(
+document.body.appendChild(renderer.domElement);
+renderer.setSize(window.innerWidth, window.innerHeight);
+const controls = new OrbitControls(camera, renderer.domElement);
+const cylinder_1 = new THREE.Mesh(
   new THREE.CylinderGeometry(1, 1, 30, 32),
   new THREE.MeshBasicMaterial(
-    {color: new THREE.Color("green")}
+    {color: 0x000000}
   )
 );
-scene.add(cylinder);
-camera.lookAt(0, 0, 0);
-camera.position.set(15, 15, 15)
+const cylinder_2 = new THREE.Mesh(
+  new THREE.CylinderGeometry(1, 1, 30, 32),
+  new THREE.MeshBasicMaterial({ color: 0xFFCC00 })
+);
+cylinder_1.position.x = -30;
+cylinder_2.position.x = 30;
+scene.add(cylinder_1);
+scene.add(cylinder_2);
 
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
 
-renderer.render(scene, camera);
+camera.position.set(0, 20, 100);
+controls.update();
 
-// function animate() {
-//   requestAnimationFrame(animate);
-//   renderer.render(scene, camera);
-// }
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
 
-// animate();
+animate()
