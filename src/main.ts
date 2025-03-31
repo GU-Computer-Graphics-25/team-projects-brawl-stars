@@ -8,13 +8,24 @@ const camera = new THREE.PerspectiveCamera(
   1000
 );
 const renderer = new THREE.WebGLRenderer();
+const cylinder = new THREE.Mesh(
+  new THREE.CylinderGeometry(1, 1, 30, 32),
+  new THREE.MeshBasicMaterial(
+    {color: new THREE.Color("green")}
+  )
+);
+scene.add(cylinder);
+camera.lookAt(0, 0, 0);
+camera.position.set(15, 15, 15)
 
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-function animate() {
-  requestAnimationFrame(animate);
-  renderer.render(scene, camera);
-}
+renderer.render(scene, camera);
 
-animate();
+// function animate() {
+//   requestAnimationFrame(animate);
+//   renderer.render(scene, camera);
+// }
+
+// animate();
