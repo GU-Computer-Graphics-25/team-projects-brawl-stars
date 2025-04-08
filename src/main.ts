@@ -24,22 +24,6 @@ const envTexture = new THREE.CubeTextureLoader()
 scene.environment = envTexture;
 
 const mug = createMug();
-mug.traverse((child) => {
-  if (child instanceof THREE.Mesh) {
-    child.material = new THREE.MeshPhysicalMaterial({
-      color: 0xffffff,
-      metalness: 0.1,
-      roughness: 0.05,
-      transmission: 0.97,
-      ior: 1.5,
-      envMap: envTexture,
-      envMapIntensity: 1.5,
-      transparent: true,
-      opacity: 0.15,
-      thickness: 0.7
-    });
-  }
-});
 scene.add(mug);
 
 // Beer parameters (adjusted for visibility and fill level)
