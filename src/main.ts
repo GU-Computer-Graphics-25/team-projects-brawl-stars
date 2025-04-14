@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import createMug from "./mug";
 import createBeer from "./beer";
 
 const scene = new THREE.Scene();
@@ -24,9 +23,7 @@ const envTexture = new THREE.CubeTextureLoader()
   .load(['px.png', 'nx.png', 'py.png', 'ny.png', 'pz.png', 'nz.png']);
 scene.environment = envTexture;
 
-const mug = createMug();
 const beer = createBeer();
-scene.add(mug);
 scene.add(beer);
 
 // Lighting setup
@@ -49,9 +46,9 @@ function animate() {
   requestAnimationFrame(animate);
   
   // Animate foam
-  beer.children[1].rotation.y += 0.005;
-  beer.children[1].scale.x = 1 + Math.sin(Date.now() * 0.005) * 0.05;
-  beer.children[1].scale.z = beer.children[1].scale.x;
+  beer.children[4].rotation.y += 0.005;
+  beer.children[4].scale.x = 1 + Math.sin(Date.now() * 0.005) * 0.05;
+  beer.children[4].scale.z = beer.children[1].scale.x;
   
   controls.update();
   renderer.render(scene, camera);
