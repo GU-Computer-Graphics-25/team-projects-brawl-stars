@@ -56,45 +56,59 @@ controls.update();
 
 function animate() {
   requestAnimationFrame(animate);
-  
-  // Animate foam
-  beer_1.children[4].rotation.y += 0.005;
-  beer_1.children[4].scale.x = 1 + Math.sin(Date.now() * 0.005) * 0.05;
-  beer_1.children[4].scale.z = beer_1.children[4].scale.x;
-  beer_2.children[4].rotation.y += 0.005;
-  beer_2.children[4].scale.x = 1 + Math.sin(Date.now() * 0.005) * 0.05;
-  beer_2.children[4].scale.z = beer_2.children[4].scale.x;
 
-  // Animate glass movement
+  // ===== 1. Animate Foam (More Robust) =====
+  const foam1 = beer_1.getObjectByName("foam");
+  const foam2 = beer_2.getObjectByName("foam");
+
+  if (foam1 && foam2) {
+    const foamSpeed = 0.005;
+    const foamScale = 0.05;
+    const time = Date.now() * foamSpeed;
+
+    foam1.rotation.y += foamSpeed;
+    foam2.rotation.y += foamSpeed;
+
+    const scaleFactor = 1 + Math.sin(time) * foamScale;
+    foam1.scale.set(scaleFactor, 1, scaleFactor);
+    foam2.scale.set(scaleFactor, 1, scaleFactor);
+  } else {
+    console.warn("Foam mesh not found! Check beer hierarchy.");
+  }
+
+  // ===== 2. Animate Glass Movement =====
+  const moveSpeed = 0.5;
+  const rotateSpeed = THREE.MathUtils.degToRad(1);
+
   if (!glassesTapped) {
+    // Move glasses toward each other
     if (beer_1.position.x >= otherTargetPositionX) {
-      // Rotate first glass before the "clink"
-      if (beer_1.rotation.z >= 0)
-        beer_1.rotation.z -= THREE.MathUtils.degToRad(1);
-      beer_1.position.x -= 0.5;
+      beer_1.position.x -= moveSpeed;
+      if (beer_1.rotation.z >= 0) beer_1.rotation.z -= rotateSpeed;
     }
     if (beer_2.position.x <= targetPositionX) {
-      // Rotate second glass before the "clink"
-      if (beer_2.rotation.z >= 0)
-        beer_2.rotation.z -= THREE.MathUtils.degToRad(1);
-      beer_2.position.x += 0.5;
+      beer_2.position.x += moveSpeed;
+      if (beer_2.rotation.z >= 0) beer_2.rotation.z -= rotateSpeed;
     }
+
+    // Check if glasses "clinked"
     if (beer_1.position.x <= otherTargetPositionX || beer_2.position.x >= targetPositionX) {
       glassesTapped = true;
     }
-  }
-  else if (glassesTapped) {
+  } 
+  else {
+    // Move glasses apart after clinking
     if (beer_1.position.x <= otherEndTargetPositionX) {
-      if (beer_1.rotation.z != 0)
-        beer_1.rotation.z += Math.PI / 180;
-      beer_1.position.x += 0.5;
+      beer_1.position.x += moveSpeed;
+      if (beer_1.rotation.z !== 0) beer_1.rotation.z += rotateSpeed;
     }
     if (beer_2.position.x >= endTargetPositionX) {
-      if (beer_2.rotation.z != 0)
-        beer_2.rotation.z += Math.PI / 180;
-      beer_2.position.x -= 0.5;
+      beer_2.position.x -= moveSpeed;
+      if (beer_2.rotation.z !== 0) beer_2.rotation.z += rotateSpeed;
     }
   }
+
+  // ===== 3. Update Scene =====
   controls.update();
   renderer.render(scene, camera);
 }
