@@ -2,6 +2,10 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import createBeer from "./beer";
 
+// Honky tonk music
+const audio = new Audio("./src/honky_tonk.mp3");
+audio.play();
+
 const targetPositionX: number = -10;
 const otherTargetPositionX: number = 10;
 const endTargetPositionX: number = -20;
