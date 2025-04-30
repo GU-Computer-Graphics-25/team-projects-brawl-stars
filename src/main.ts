@@ -2,7 +2,7 @@ import * as THREE from "three";
 import * as CANNON from 'cannon-es';
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import createBeer, { updateBeer } from "./beer";
-import { updateSplashParticles } from "./particles";
+import { updateSplashParticles, triggerSplash } from "./particles";
 
 // Scene setup
 const scene = new THREE.Scene();
@@ -12,16 +12,16 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 document.body.appendChild(renderer.domElement);
 renderer.setSize(window.innerWidth, window.innerHeight); 
 
-// Physics setup
+// Physics setup with realistic parameters
 const world = new CANNON.World({
-  gravity: new CANNON.Vec3(0, -15, 0),
+  gravity: new CANNON.Vec3(0, -9.8, 0), // Real-world gravity
   allowSleep: false
 });
 world.broadphase = new CANNON.SAPBroadphase(world);
 
 const solver = new CANNON.GSSolver();
-solver.iterations = 40;
-solver.tolerance = 0.01;
+solver.iterations = 20; // Reduced for performance
+solver.tolerance = 0.1; // Increased for performance
 world.solver = solver;
 
 const glassMaterial = new CANNON.Material("glass");
@@ -29,10 +29,10 @@ const contactMaterial = new CANNON.ContactMaterial(
   glassMaterial,
   glassMaterial,
   {
-    restitution: 1.0,
-    friction: 0.001,
-    contactEquationStiffness: 1e10,
-    contactEquationRelaxation: 1
+    restitution: 0.4,  // Softer bounces (0 = no bounce, 1 = perfect bounce)
+    friction: 0.3,     // More friction between glasses
+    contactEquationStiffness: 1e8, // Softer contacts
+    contactEquationRelaxation: 3   // More relaxation
   }
 );
 world.addContactMaterial(contactMaterial);
@@ -54,37 +54,37 @@ guiContainer.appendChild(distanceLabel);
 
 const distanceSlider = document.createElement('input');
 distanceSlider.type = 'range';
-distanceSlider.min = '20';
+distanceSlider.min = '50';
 distanceSlider.max = '100';
-distanceSlider.value = '40';
-distanceSlider.step = '1';
+distanceSlider.value = '50';
+distanceSlider.step = '10';
 guiContainer.appendChild(distanceSlider);
 guiContainer.appendChild(document.createElement('br'));
 
 // Speed control
 const speedLabel = document.createElement('div');
-speedLabel.textContent = 'Speed: 10.0';
+speedLabel.textContent = 'Speed: 30.0';
 guiContainer.appendChild(speedLabel);
 
 const speedSlider = document.createElement('input');
 speedSlider.type = 'range';
 speedSlider.min = '10';
 speedSlider.max = '100';
-speedSlider.value = '3';
-speedSlider.step = '0.5';
+speedSlider.value = '30';
+speedSlider.step = '10';
 guiContainer.appendChild(speedSlider);
 guiContainer.appendChild(document.createElement('br'));
 
 // Gravity control
 const gravityLabel = document.createElement('div');
-gravityLabel.textContent = 'Gravity: -15';
+gravityLabel.textContent = 'Gravity: 0';
 guiContainer.appendChild(gravityLabel);
 
 const gravitySlider = document.createElement('input');
 gravitySlider.type = 'range';
-gravitySlider.min = '-30';
-gravitySlider.max = '0';
-gravitySlider.value = '-15';
+gravitySlider.min = '-10';
+gravitySlider.max = '2';
+gravitySlider.value = '0';
 gravitySlider.step = '1';
 guiContainer.appendChild(gravitySlider);
 guiContainer.appendChild(document.createElement('br'));
@@ -176,7 +176,7 @@ const resetButton = document.createElement('button');
 resetButton.textContent = 'Reset';
 buttonContainer.appendChild(resetButton);
 
-// Create beer mugs
+// Create beer mugs with realistic physics
 const leftGlass = createBeer(scene, world);
 const rightGlass = createBeer(scene, world);
 
@@ -191,13 +191,17 @@ rightShape.radiusBottom = 10;
 leftShape.material = glassMaterial;
 rightShape.material = glassMaterial;
 
-// Prevent any unwanted rotation
-leftGlass.physicsBody.fixedRotation = true;
-rightGlass.physicsBody.fixedRotation = true;
-leftGlass.physicsBody.updateMassProperties();
-rightGlass.physicsBody.updateMassProperties();
+// More realistic physical properties
+leftGlass.physicsBody.mass = 2.0; // Heavier glasses (kg)
+rightGlass.physicsBody.mass = 2.0;
+leftGlass.physicsBody.linearDamping = 0.4; // Air resistance
+rightGlass.physicsBody.linearDamping = 0.4;
+leftGlass.physicsBody.angularDamping = 0.4; // Rotational resistance
+rightGlass.physicsBody.angularDamping = 0.4;
+leftGlass.physicsBody.fixedRotation = false; // Allow natural rotation
+rightGlass.physicsBody.fixedRotation = false;
 
-// Initial positions and rotations - left cup rotated 180 degrees
+// Initial positions and rotations
 leftGlass.physicsBody.position.set(-20, 15, 0);
 rightGlass.physicsBody.position.set(20, 15, 0);
 leftGlass.object.rotation.set(0, Math.PI, 0); // 180 degrees y-rotation
@@ -216,8 +220,8 @@ controls.enableDamping = true;
 
 // Animation state
 let movementPhase: 'ready' | 'approaching' | 'separating' = 'ready';
-let approachStartTime: number | null = null; 
 let currentSpeed = 0;
+let collisionOccurred = false;
 
 // Tilt update functions
 function updateLeftCupTilt() {
@@ -226,16 +230,13 @@ function updateLeftCupTilt() {
   leftTiltXLabel.textContent = `Front-Back: ${tiltX}°`;
   leftTiltZLabel.textContent = `Side-Side: ${tiltZ}°`;
   
-  // Apply tilts while preserving the 180° Y rotation
   leftGlass.object.rotation.set(
     THREE.MathUtils.degToRad(tiltX),
-    Math.PI, // Always maintain 180° rotation
+    Math.PI,
     THREE.MathUtils.degToRad(tiltZ)
   );
   
-  setTimeout(() => {
-    syncPhysicsToGraphics(leftGlass.object, leftGlass.physicsBody);
-  }, 10);
+  syncPhysicsToGraphics(leftGlass.object, leftGlass.physicsBody);
 }
 
 function updateRightCupTilt() {
@@ -250,9 +251,7 @@ function updateRightCupTilt() {
     THREE.MathUtils.degToRad(tiltZ)
   );
   
-  setTimeout(() => {
-    syncPhysicsToGraphics(rightGlass.object, rightGlass.physicsBody);
-  }, 10);
+  syncPhysicsToGraphics(rightGlass.object, rightGlass.physicsBody);
 }
 
 function updatePositions() {
@@ -262,11 +261,9 @@ function updatePositions() {
   leftGlass.object.position.set(-startDistance/2, 15, 0);
   rightGlass.object.position.set(startDistance/2, 15, 0);
   
-  // Reset rotations while maintaining the 180° for left cup
   leftGlass.object.rotation.set(0, Math.PI, 0);
   rightGlass.object.rotation.set(0, 0, 0);
   
-  // Apply current tilt settings
   updateLeftCupTilt();
   updateRightCupTilt();
   
@@ -276,32 +273,30 @@ function updatePositions() {
 
 function resetAnimation() {
   movementPhase = 'ready';
-  approachStartTime = null;
   currentSpeed = 0;
+  collisionOccurred = false;
   
-  leftGlass.physicsBody.mass = 0;
-  rightGlass.physicsBody.mass = 0;
   leftGlass.physicsBody.velocity.set(0, 0, 0);
   rightGlass.physicsBody.velocity.set(0, 0, 0);
   leftGlass.physicsBody.angularVelocity.set(0, 0, 0);
   rightGlass.physicsBody.angularVelocity.set(0, 0, 0);
   
-  // Reset to current gravity setting
   world.gravity.set(0, parseFloat(gravitySlider.value), 0);
-  
-  // Reset positions while maintaining rotations
   updatePositions();
+  
+  // Reset liquid levels
+  leftGlass.liquidLevel = 1.0;
+  rightGlass.liquidLevel = 1.0;
+  
+  // Hide all splash particles
+  leftGlass.splashParticles.children.forEach(p => (p as THREE.Mesh).visible = false);
+  rightGlass.splashParticles.children.forEach(p => (p as THREE.Mesh).visible = false);
 }
 
 function startAnimation() {
   if (movementPhase === 'ready') {
     movementPhase = 'approaching';
-    approachStartTime = performance.now() / 1000;
     currentSpeed = parseFloat(speedSlider.value);
-    
-    // Enable movement
-    leftGlass.physicsBody.mass = 1;
-    rightGlass.physicsBody.mass = 1;
   }
 }
 
@@ -319,11 +314,10 @@ speedSlider.addEventListener('input', () => {
 
 gravitySlider.addEventListener('input', () => {
   const gravityValue = parseFloat(gravitySlider.value);
-  gravityLabel.textContent = `Gravity: ${gravityValue}`;
+  gravityLabel.textContent = `Gravity: ${gravityValue.toFixed(1)}`;
   world.gravity.set(0, gravityValue, 0);
 });
 
-// Real-time tilt listeners
 leftTiltXSlider.addEventListener('input', updateLeftCupTilt);
 leftTiltZSlider.addEventListener('input', updateLeftCupTilt);
 rightTiltXSlider.addEventListener('input', updateRightCupTilt);
@@ -339,24 +333,20 @@ function animate() {
   const delta = clock.getDelta();
   const time = performance.now() / 1000;
 
-  // Only update physics during movement
   if (movementPhase !== 'ready') {
     world.step(1/60);
   }
 
-  // Always update visuals
   updateBeer(leftGlass, time, delta);
   updateBeer(rightGlass, time, delta);
   updateSplashParticles(leftGlass.splashParticles, delta);
   updateSplashParticles(rightGlass.splashParticles, delta);
 
-  // Animate foam
   if (leftGlass.foamMesh && rightGlass.foamMesh) {
     leftGlass.foamMesh.rotation.y += 0.01;
     rightGlass.foamMesh.rotation.y += 0.01;
   }
 
-  // Handle movement
   if (movementPhase === 'approaching') {
     const moveAmount = currentSpeed * delta;
     leftGlass.object.position.x += moveAmount;
@@ -365,7 +355,8 @@ function animate() {
     syncPhysicsToGraphics(leftGlass.object, leftGlass.physicsBody);
     syncPhysicsToGraphics(rightGlass.object, rightGlass.physicsBody);
 
-    if (leftGlass.object.position.x >= rightGlass.object.position.x) {
+    const distanceBetween = leftGlass.object.position.distanceTo(rightGlass.object.position);
+    if (distanceBetween <= 18 && !collisionOccurred) {
       handleCollision();
     }
   }
@@ -376,28 +367,50 @@ function animate() {
 
 function handleCollision() {
   movementPhase = 'separating';
+  collisionOccurred = true;
+
+  // Calculate collision intensity
+  const relativeVelocity = leftGlass.physicsBody.velocity.vsub(rightGlass.physicsBody.velocity).length();
+  const collisionIntensity = Math.min(relativeVelocity / 8, 1.5); // More sensitive to velocity
   
-  const currentGravity = world.gravity.y;
-  world.gravity.set(0, 0, 0);
+  // Get collision direction and position
+  const collisionDirection = new THREE.Vector3().subVectors(
+    rightGlass.object.position,
+    leftGlass.object.position
+  ).normalize();
+
+  // Calculate collision point at the rim of the glasses
+  const rimHeight = 25; // Height of beer in glass
+  const leftCollisionPos = leftGlass.object.position.clone();
+  leftCollisionPos.y += rimHeight;
+  const rightCollisionPos = rightGlass.object.position.clone();
+  rightCollisionPos.y += rimHeight;
+
+  // Trigger more dramatic splashes
+  triggerSplash(leftGlass.splashParticles, leftCollisionPos, collisionIntensity * 1.5, collisionDirection.clone().negate());
+  triggerSplash(rightGlass.splashParticles, rightCollisionPos, collisionIntensity * 1.5, collisionDirection);
+
+  // Reduce liquid level more noticeably
+  leftGlass.liquidLevel = Math.max(0.4, leftGlass.liquidLevel - (collisionIntensity * 0.15));
+  rightGlass.liquidLevel = Math.max(0.4, rightGlass.liquidLevel - (collisionIntensity * 0.15));
+
+  // Visual feedback - push cups back
+  const separationSpeed = currentSpeed * 1.5 * collisionIntensity;
   
-  const separationSpeed = currentSpeed * 2.5;
-  const separationDistance = 5;
+  leftGlass.physicsBody.velocity.set(-separationSpeed, separationSpeed * 0.3, 0); // Add slight upward motion
+  rightGlass.physicsBody.velocity.set(separationSpeed, separationSpeed * 0.3, 0);
   
-  leftGlass.object.position.set(-separationDistance, 15, 0);
-  rightGlass.object.position.set(separationDistance, 15, 0);
-  leftGlass.physicsBody.velocity.set(-separationSpeed, 0, 0);
-  rightGlass.physicsBody.velocity.set(separationSpeed, 0, 0);
-  
-  syncPhysicsToGraphics(leftGlass.object, leftGlass.physicsBody);
-  syncPhysicsToGraphics(rightGlass.object, rightGlass.physicsBody);
-  
+  // Play sound
   new Audio('./src/clink.mp3').play().catch(console.error);
+  
+  // Temporarily reduce gravity for bounce effect
+  const currentGravity = world.gravity.y;
+  world.gravity.set(0, currentGravity * 0.2, 0);
   
   setTimeout(() => {
     world.gravity.set(0, currentGravity, 0);
-  }, 100);
-  
-  setTimeout(resetAnimation, 3000);
+    setTimeout(resetAnimation, 5500);
+  }, 200);
 }
 
 function syncPhysicsToGraphics(mesh: THREE.Object3D, body: CANNON.Body) {

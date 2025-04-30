@@ -2,12 +2,21 @@ import * as THREE from "three";
 import * as CANNON from 'cannon-es';
 import { createFoamParticles, createSplashParticles } from './particles';
 
+interface ParticleUserData {
+  velocity: THREE.Vector3;
+  lifetime: number;
+  maxLifetime: number;
+}
+
 interface BeerObject {
   object: THREE.Group;
   physicsBody: CANNON.Body;
   beerMesh: THREE.Mesh;
   foamMesh: THREE.Mesh;
   splashParticles: THREE.Group;
+  liquidLevel: number; 
+  originalBeerHeight: number;
+  activeParticles: THREE.Mesh[];
 }
 
 export default function createBeer(scene: THREE.Scene, world: CANNON.World): BeerObject {
@@ -93,10 +102,13 @@ export default function createBeer(scene: THREE.Scene, world: CANNON.World): Bee
   const foamParticles = createFoamParticles();
   foam.add(foamParticles);
 
-  // Splash particles (initially hidden)
+  // Splash particles
   const splashParticles = createSplashParticles();
   splashParticles.visible = false;
   object.add(splashParticles);
+
+  // Initialize active particles array
+  const activeParticles: THREE.Mesh[] = [];
 
   // Assemble
   object.add(outerGlass, innerGlass, handle, beer, foam);
@@ -108,40 +120,130 @@ export default function createBeer(scene: THREE.Scene, world: CANNON.World): Bee
     physicsBody: mugBody,
     beerMesh: beer,
     foamMesh: foam,
-    splashParticles
+    splashParticles,
+    liquidLevel: 1.0, // Start full
+    originalBeerHeight: beerHeight,
+    activeParticles
   };
+}
+
+function setMaterialOpacity(material: THREE.Material | THREE.Material[], opacity: number) {
+  if (Array.isArray(material)) {
+    material.forEach(mat => {
+      if ('opacity' in mat) {
+        mat.opacity = opacity;
+      }
+    });
+  } else if ('opacity' in material) {
+    material.opacity = opacity;
+  }
 }
 
 export function updateBeer(beerObj: BeerObject, time: number, delta: number) {
   // Simulate fluid movement based on physics body velocity
   const velocity = beerObj.physicsBody.velocity.length();
   
-  // Make foam react to movement (using delta for frame-rate independence)
+  // Make foam react to movement
   if (velocity > 0.1) {
     const waveIntensity = Math.min(velocity * 0.5, 1.5);
     const foamWave = Math.sin(time * 10) * waveIntensity * 0.1;
     const foamBob = Math.sin(time * 8) * waveIntensity * 0.2;
     
-    beerObj.foamMesh.scale.y = 1 + foamWave * delta * 60; // Normalize to 60fps
+    beerObj.beerMesh.scale.y = beerObj.liquidLevel;
+    beerObj.beerMesh.position.y = (beerObj.originalBeerHeight * beerObj.liquidLevel)/2 - 10;
+    beerObj.foamMesh.scale.y = 1 + foamWave * delta * 60;
     beerObj.foamMesh.position.y = (25 - 9.5) + foamBob * delta * 60;
-    
-    // Show splash particles when velocity is high
-    if (velocity > 2 && !beerObj.splashParticles.visible) {
-      beerObj.splashParticles.visible = true;
-      beerObj.splashParticles.position.copy(beerObj.object.position);
-      beerObj.splashParticles.position.y += 10;
-      setTimeout(() => {
-        beerObj.splashParticles.visible = false;
-      }, 1000);
-    }
   } else {
     beerObj.foamMesh.scale.y = 1;
+  }
+  
+  // Update active splash particles
+  for (let i = beerObj.activeParticles.length - 1; i >= 0; i--) {
+    const particle = beerObj.activeParticles[i];
+    const particleData = particle.userData as ParticleUserData;
+    
+    if (!particleData || particleData.lifetime >= particleData.maxLifetime) {
+      particle.visible = false;
+      beerObj.activeParticles.splice(i, 1);
+      continue;
+    }
+    
+    // Apply gravity
+    particleData.velocity.y -= 9.8 * delta;
+    
+    // Update position
+    particle.position.add(
+      particleData.velocity.clone().multiplyScalar(delta)
+    );
+    
+    // Update lifetime
+    particleData.lifetime += delta;
+    
+    // Update opacity
+    setMaterialOpacity(particle.material, 1 - (particleData.lifetime / particleData.maxLifetime));
   }
   
   syncPhysicsToGraphics(beerObj.object, beerObj.physicsBody);
 }
 
-// Helper function to sync physics and graphics
+export function triggerSplash(beerObj: BeerObject, intensity: number, direction?: THREE.Vector3) {
+  // Reduce liquid level based on collision intensity
+  beerObj.liquidLevel = Math.max(0.3, beerObj.liquidLevel - (intensity * 0.1));
+  
+  // Get splash position at rim of glass
+  const splashPos = beerObj.object.position.clone();
+  splashPos.y += 10;
+
+  // Create new particles
+  const particleCount = Math.floor(15 * intensity);
+  
+  for (let i = 0; i < particleCount; i++) {
+    let particle: THREE.Mesh;
+    
+    if (beerObj.splashParticles.children.length <= i) {
+      // Create new particle if needed
+      const geometry = new THREE.SphereGeometry(0.3, 8, 8);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xebc100,
+        transparent: true,
+        opacity: 1
+      });
+      particle = new THREE.Mesh(geometry, material);
+      beerObj.splashParticles.add(particle);
+    } else {
+      particle = beerObj.splashParticles.children[i] as THREE.Mesh;
+    }
+    
+    particle.visible = true;
+    particle.position.copy(splashPos);
+    
+    // Random offset at glass rim
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 9;
+    particle.position.x += Math.cos(angle) * radius;
+    particle.position.z += Math.sin(angle) * radius;
+    
+    // Set initial velocity with directional bias
+    const velocity = new THREE.Vector3(
+      (Math.random() - 0.5) * 5 * intensity,
+      Math.random() * 8 * intensity,
+      (Math.random() - 0.5) * 5 * intensity
+    );
+
+    if (direction) {
+      velocity.add(direction.clone().multiplyScalar(5 * intensity));
+    }
+
+    particle.userData = {
+      velocity: velocity,
+      lifetime: 0,
+      maxLifetime: 0.5 + Math.random() * 0.5
+    };
+    
+    beerObj.activeParticles.push(particle);
+  }
+}
+
 function syncPhysicsToGraphics(mesh: THREE.Object3D, body: CANNON.Body) {
   mesh.position.set(body.position.x, body.position.y, body.position.z);
   mesh.quaternion.set(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
