@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 import * as CANNON from 'cannon-es';
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import createBeer, { updateBeer } from "./beer";
 import { updateSplashParticles, triggerSplash } from "./particles";
 
