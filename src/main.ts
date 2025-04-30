@@ -5,6 +5,10 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import createBeer, { updateBeer } from "./beer";
 import { updateSplashParticles, triggerSplash } from "./particles";
 
+//Honky tonk music
+const audio = new Audio("honky_tonnk.wav");
+audio.play();
+
 // Scene setup
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("lightgrey");
