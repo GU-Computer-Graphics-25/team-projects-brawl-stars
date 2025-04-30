@@ -66,6 +66,7 @@ export default function createBeer(scene: THREE.Scene, world: CANNON.World): Bee
     ior: 1.33,
     side: THREE.DoubleSide,
     thickness: 4.8,
+    map: new THREE.TextureLoader().load("lager.gif")
   });
 
   const beer = new THREE.Mesh(
