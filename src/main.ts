@@ -1,12 +1,11 @@
 import * as THREE from "three";
-
 import * as CANNON from 'cannon-es';
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import createBeer, { updateBeer } from "./beer";
 import { updateSplashParticles, triggerSplash } from "./particles";
 
 //Honky tonk music
-const audio = new Audio("honky_tonnk.wav");
+const audio = new Audio("honky_tonk.wav");
 audio.play();
 
 // Scene setup
@@ -406,7 +405,7 @@ function handleCollision() {
   rightGlass.physicsBody.velocity.set(separationSpeed, separationSpeed * 0.3, 0);
   
   // Play sound
-  new Audio('./src/clink.mp3').play().catch(console.error);
+  // new Audio('./src/clink.mp3').play().catch(console.error);
   
   // Temporarily reduce gravity for bounce effect
   const currentGravity = world.gravity.y;
