@@ -6,6 +6,7 @@ interface ParticleUserData {
   velocity: THREE.Vector3;
   lifetime: number;
   maxLifetime: number;
+  size: number;
 }
 
 interface BeerObject {
@@ -14,14 +15,22 @@ interface BeerObject {
   beerMesh: THREE.Mesh;
   foamMesh: THREE.Mesh;
   splashParticles: THREE.Group;
-  liquidLevel: number; 
+  liquidLevel: number;
   originalBeerHeight: number;
   activeParticles: THREE.Mesh[];
+  glassHeight: number;
+  foamBubbles: THREE.Mesh[];
+  liquidVelocity: THREE.Vector3;
+  isSpilling: boolean;
+  spillStartTime: number;
 }
 
+
 export default function createBeer(scene: THREE.Scene, world: CANNON.World): BeerObject {
-  const object = new THREE.Object3D();
   const beerGroup = new THREE.Group();
+  const glassHeight = 30;
+  const beerHeight = 25;
+  const glassThickness = 0.5;
   
   // Glass Material
   const glassMaterial = new THREE.MeshPhysicalMaterial({
@@ -38,18 +47,20 @@ export default function createBeer(scene: THREE.Scene, world: CANNON.World): Bee
     side: THREE.DoubleSide,
   });
 
-  // Glass structure
+  // Main glass body (outer)
   const outerGlass = new THREE.Mesh(
-    new THREE.CylinderGeometry(10, 10, 30, 32, 1, false),
+    new THREE.CylinderGeometry(10, 10, glassHeight, 32),
     glassMaterial
   );
 
+  // Inner glass (creates thickness illusion)
   const innerGlass = new THREE.Mesh(
-    new THREE.CylinderGeometry(9.5, 9.5, 29, 32, 1, false),
+    new THREE.CylinderGeometry(9.5, 9.5, glassHeight - 1, 32),
     glassMaterial
   );
   innerGlass.position.y = 0.5;
 
+  // Handle
   const handle = new THREE.Mesh(
     new THREE.TorusGeometry(10, 1, 12, 48, Math.PI),
     glassMaterial
@@ -57,8 +68,7 @@ export default function createBeer(scene: THREE.Scene, world: CANNON.World): Bee
   handle.rotation.z = (3 * Math.PI) / 2;
   handle.position.x = 10;
 
-  // Beer Liquid with physics
-  const beerHeight = 25;
+  // Beer Liquid
   const beerMaterial = new THREE.MeshPhysicalMaterial({
     color: 0xebc100,
     transmission: 0.2,
@@ -75,25 +85,18 @@ export default function createBeer(scene: THREE.Scene, world: CANNON.World): Bee
   beer.position.y = beerHeight / 2 - 10;
   beer.name = "beerLiquid";
 
-  // Physics body for the mug
-  const mugShape = new CANNON.Cylinder(10, 10, 30, 32);
-  const mugBody = new CANNON.Body({
-    mass: 0.5,
-    shape: mugShape,
-    material: new CANNON.Material({ restitution: 0.3 }),
-    position: new CANNON.Vec3(0, 0, 0)
+  // Foam
+  const foamMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xfff5e1,
+    roughness: 0.7,
+    transparent: true,
+    opacity: 0.9,
+    side: THREE.DoubleSide,
   });
-  mugBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
-  world.addBody(mugBody);
 
-  // Foam with dynamic behavior
   const foam = new THREE.Mesh(
     new THREE.CylinderGeometry(8.5, 8.5, 1.5, 32),
-    new THREE.MeshPhysicalMaterial({
-      color: 0xfff5e1,
-      roughness: 0.7,
-      side: THREE.DoubleSide,
-    })
+    foamMaterial
   );
   foam.position.y = beerHeight - 9.5;
   foam.name = "foam";
@@ -105,14 +108,25 @@ export default function createBeer(scene: THREE.Scene, world: CANNON.World): Bee
   // Splash particles
   const splashParticles = createSplashParticles();
   splashParticles.visible = false;
-  object.add(splashParticles);
+  beerGroup.add(splashParticles);
 
-  // Initialize active particles array
+  // Physics body for the mug
+  const mugShape = new CANNON.Cylinder(10, 10, glassHeight, 32);
+  const mugBody = new CANNON.Body({
+    mass: 0.5,
+    shape: mugShape,
+    material: new CANNON.Material({ restitution: 0.3 }),
+    position: new CANNON.Vec3(0, 0, 0)
+  });
+  mugBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+  world.addBody(mugBody);
+
+  // Initialize arrays
   const activeParticles: THREE.Mesh[] = [];
+  const foamBubbles: THREE.Mesh[] = [];
 
-  // Assemble
-  object.add(outerGlass, innerGlass, handle, beer, foam);
-  beerGroup.add(object);
+  // Assemble the mug exactly as before
+  beerGroup.add(outerGlass, innerGlass, handle, beer, foam);
   scene.add(beerGroup);
 
   return {
@@ -121,43 +135,41 @@ export default function createBeer(scene: THREE.Scene, world: CANNON.World): Bee
     beerMesh: beer,
     foamMesh: foam,
     splashParticles,
-    liquidLevel: 1.0, // Start full
+    liquidLevel: 1.0,
     originalBeerHeight: beerHeight,
-    activeParticles
+    activeParticles: [],
+    glassHeight,
+    foamBubbles: [],
+    liquidVelocity: new THREE.Vector3(),
+    isSpilling: false,
+    spillStartTime: 0
   };
 }
 
-function setMaterialOpacity(material: THREE.Material | THREE.Material[], opacity: number) {
-  if (Array.isArray(material)) {
-    material.forEach(mat => {
-      if ('opacity' in mat) {
-        mat.opacity = opacity;
-      }
-    });
-  } else if ('opacity' in material) {
-    material.opacity = opacity;
-  }
-}
-
 export function updateBeer(beerObj: BeerObject, time: number, delta: number) {
+  // Update liquid level and position (maintains original behavior)
+  beerObj.beerMesh.scale.y = beerObj.liquidLevel;
+  beerObj.beerMesh.position.y = (beerObj.originalBeerHeight * beerObj.liquidLevel)/2 - 10;
+  
+  // FOAM IMPROVEMENTS - Now properly tracks liquid level
+  beerObj.foamMesh.position.y = beerObj.beerMesh.position.y + (beerObj.originalBeerHeight * beerObj.liquidLevel)/2;
+
   // Simulate fluid movement based on physics body velocity
   const velocity = beerObj.physicsBody.velocity.length();
   
-  // Make foam react to movement
+  // Make foam react to movement (original behavior)
   if (velocity > 0.1) {
     const waveIntensity = Math.min(velocity * 0.5, 1.5);
     const foamWave = Math.sin(time * 10) * waveIntensity * 0.1;
     const foamBob = Math.sin(time * 8) * waveIntensity * 0.2;
     
-    beerObj.beerMesh.scale.y = beerObj.liquidLevel;
-    beerObj.beerMesh.position.y = (beerObj.originalBeerHeight * beerObj.liquidLevel)/2 - 10;
     beerObj.foamMesh.scale.y = 1 + foamWave * delta * 60;
-    beerObj.foamMesh.position.y = (25 - 9.5) + foamBob * delta * 60;
+    beerObj.foamMesh.position.y += foamBob * delta * 60;
   } else {
     beerObj.foamMesh.scale.y = 1;
   }
-  
-  // Update active splash particles
+
+  // Update active splash particles (original behavior)
   for (let i = beerObj.activeParticles.length - 1; i >= 0; i--) {
     const particle = beerObj.activeParticles[i];
     const particleData = particle.userData as ParticleUserData;
@@ -180,21 +192,23 @@ export function updateBeer(beerObj: BeerObject, time: number, delta: number) {
     particleData.lifetime += delta;
     
     // Update opacity
-    setMaterialOpacity(particle.material, 1 - (particleData.lifetime / particleData.maxLifetime));
+    if (particle.material instanceof THREE.Material) {
+      particle.material.opacity = 1 - (particleData.lifetime / particleData.maxLifetime);
+    }
   }
   
   syncPhysicsToGraphics(beerObj.object, beerObj.physicsBody);
 }
 
 export function triggerSplash(beerObj: BeerObject, intensity: number, direction?: THREE.Vector3) {
-  // Reduce liquid level based on collision intensity
+  // Reduce liquid level based on collision intensity (original behavior)
   beerObj.liquidLevel = Math.max(0.3, beerObj.liquidLevel - (intensity * 0.1));
   
-  // Get splash position at rim of glass
+  // Get splash position at rim of glass (original behavior)
   const splashPos = beerObj.object.position.clone();
   splashPos.y += 10;
 
-  // Create new particles
+  // Create new particles (original behavior)
   const particleCount = Math.floor(15 * intensity);
   
   for (let i = 0; i < particleCount; i++) {
@@ -217,13 +231,13 @@ export function triggerSplash(beerObj: BeerObject, intensity: number, direction?
     particle.visible = true;
     particle.position.copy(splashPos);
     
-    // Random offset at glass rim
+    // Random offset at glass rim (original behavior)
     const angle = Math.random() * Math.PI * 2;
     const radius = 9;
     particle.position.x += Math.cos(angle) * radius;
     particle.position.z += Math.sin(angle) * radius;
     
-    // Set initial velocity with directional bias
+    // Set initial velocity with directional bias (original behavior)
     const velocity = new THREE.Vector3(
       (Math.random() - 0.5) * 5 * intensity,
       Math.random() * 8 * intensity,

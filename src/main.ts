@@ -4,28 +4,25 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import createBeer, { updateBeer } from "./beer";
 import { updateSplashParticles, triggerSplash } from "./particles";
 
-//Honky tonk music
-const audio = new Audio("honky_tonk.wav");
-audio.play();
-
 // Scene setup
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("lightgrey");
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 document.body.appendChild(renderer.domElement);
-renderer.setSize(window.innerWidth, window.innerHeight); 
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
 
 // Physics setup with realistic parameters
 const world = new CANNON.World({
-  gravity: new CANNON.Vec3(0, -9.8, 0), // Real-world gravity
+  gravity: new CANNON.Vec3(0, -9.8, 0),
   allowSleep: false
 });
 world.broadphase = new CANNON.SAPBroadphase(world);
 
 const solver = new CANNON.GSSolver();
-solver.iterations = 20; // Reduced for performance
-solver.tolerance = 0.1; // Increased for performance
+solver.iterations = 20;
+solver.tolerance = 0.1;
 world.solver = solver;
 
 const glassMaterial = new CANNON.Material("glass");
@@ -33,10 +30,10 @@ const contactMaterial = new CANNON.ContactMaterial(
   glassMaterial,
   glassMaterial,
   {
-    restitution: 0.4,  // Softer bounces (0 = no bounce, 1 = perfect bounce)
-    friction: 0.3,     // More friction between glasses
-    contactEquationStiffness: 1e8, // Softer contacts
-    contactEquationRelaxation: 3   // More relaxation
+    restitution: 0.5,
+    friction: 0.4,
+    contactEquationStiffness: 5e7,
+    contactEquationRelaxation: 4
   }
 );
 world.addContactMaterial(contactMaterial);
@@ -195,20 +192,20 @@ rightShape.radiusBottom = 10;
 leftShape.material = glassMaterial;
 rightShape.material = glassMaterial;
 
-// More realistic physical properties
-leftGlass.physicsBody.mass = 2.0; // Heavier glasses (kg)
+// Physical properties
+leftGlass.physicsBody.mass = 2.0;
 rightGlass.physicsBody.mass = 2.0;
-leftGlass.physicsBody.linearDamping = 0.4; // Air resistance
+leftGlass.physicsBody.linearDamping = 0.4;
 rightGlass.physicsBody.linearDamping = 0.4;
-leftGlass.physicsBody.angularDamping = 0.4; // Rotational resistance
+leftGlass.physicsBody.angularDamping = 0.4;
 rightGlass.physicsBody.angularDamping = 0.4;
-leftGlass.physicsBody.fixedRotation = false; // Allow natural rotation
+leftGlass.physicsBody.fixedRotation = false;
 rightGlass.physicsBody.fixedRotation = false;
 
-// Initial positions and rotations
+// Initial positions
 leftGlass.physicsBody.position.set(-20, 15, 0);
 rightGlass.physicsBody.position.set(20, 15, 0);
-leftGlass.object.rotation.set(0, Math.PI, 0); // 180 degrees y-rotation
+leftGlass.object.rotation.set(0, Math.PI, 0);
 rightGlass.object.rotation.set(0, 0, 0);
 
 // Lighting
@@ -216,6 +213,7 @@ const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
 scene.add(ambientLight);
 const directionalLight = new THREE.DirectionalLight(0xffffff, 3);
 directionalLight.position.set(5, 20, 15);
+directionalLight.castShadow = true;
 scene.add(directionalLight);
 
 camera.position.set(0, 30, 70);
@@ -226,6 +224,32 @@ controls.enableDamping = true;
 let movementPhase: 'ready' | 'approaching' | 'separating' = 'ready';
 let currentSpeed = 0;
 let collisionOccurred = false;
+
+// Collision event listener
+const collisionHandler = (event: {
+  bodyA: CANNON.Body;
+  bodyB: CANNON.Body;
+  contact: CANNON.ContactEquation;
+}) => {
+  const { bodyA, bodyB } = event;
+  if ((bodyA === leftGlass.physicsBody && bodyB === rightGlass.physicsBody) || 
+      (bodyA === rightGlass.physicsBody && bodyB === leftGlass.physicsBody)) {
+    if (!collisionOccurred) {
+      handleCollision({
+        bodyA,
+        bodyB,
+        contact: event.contact
+      });
+    }
+  }
+};
+
+// Add the event listener
+world.addEventListener('postStep', () => {
+  if (!world.hasEventListener('beginContact', collisionHandler)) {
+    world.addEventListener('beginContact', collisionHandler);
+  }
+});
 
 // Tilt update functions
 function updateLeftCupTilt() {
@@ -288,13 +312,14 @@ function resetAnimation() {
   world.gravity.set(0, parseFloat(gravitySlider.value), 0);
   updatePositions();
   
-  // Reset liquid levels
   leftGlass.liquidLevel = 1.0;
   rightGlass.liquidLevel = 1.0;
   
-  // Hide all splash particles
   leftGlass.splashParticles.children.forEach(p => (p as THREE.Mesh).visible = false);
   rightGlass.splashParticles.children.forEach(p => (p as THREE.Mesh).visible = false);
+
+  // Remove collision listener
+  world.removeEventListener('beginContact', collisionHandler);
 }
 
 function startAnimation() {
@@ -369,52 +394,246 @@ function animate() {
   renderer.render(scene, camera);
 }
 
-function handleCollision() {
+function handleCollision(event?: {
+  bodyA: CANNON.Body;
+  bodyB: CANNON.Body;
+  contact?: CANNON.ContactEquation;
+}) {
   movementPhase = 'separating';
   collisionOccurred = true;
 
   // Calculate collision intensity
-  const relativeVelocity = leftGlass.physicsBody.velocity.vsub(rightGlass.physicsBody.velocity).length();
-  const collisionIntensity = Math.min(relativeVelocity / 8, 1.5); // More sensitive to velocity
-  
-  // Get collision direction and position
+  let collisionIntensity = 1.0;
+  let contactPoint = new THREE.Vector3(
+    (leftGlass.object.position.x + rightGlass.object.position.x) / 2,
+    (leftGlass.object.position.y + rightGlass.object.position.y) / 2 + 15,
+    (leftGlass.object.position.z + rightGlass.object.position.z) / 2
+  );
+
+  if (event?.contact) {
+    const relativeVelocity = event.contact.getImpactVelocityAlongNormal();
+    collisionIntensity = Math.min(Math.abs(relativeVelocity) / 5, 1.5);
+    
+    const worldPoint = new CANNON.Vec3();
+    event.contact.ri.vadd(event.bodyA.position, worldPoint);
+    contactPoint.set(worldPoint.x, worldPoint.y, worldPoint.z);
+  }
+
+  // Calculate collision direction
   const collisionDirection = new THREE.Vector3().subVectors(
     rightGlass.object.position,
     leftGlass.object.position
   ).normalize();
 
-  // Calculate collision point at the rim of the glasses
-  const rimHeight = 25; // Height of beer in glass
-  const leftCollisionPos = leftGlass.object.position.clone();
-  leftCollisionPos.y += rimHeight;
-  const rightCollisionPos = rightGlass.object.position.clone();
-  rightCollisionPos.y += rimHeight;
+  // ==================== LIQUID PHYSICS ====================
+  // Create realistic liquid splash particles
+  const splashParticleCount = Math.floor(collisionIntensity * 80);
+  const splashVelocityMultiplier = collisionIntensity * 20;
+  const rimHeight = 15; // Height of glass rim from base
 
-  // Trigger more dramatic splashes
-  triggerSplash(leftGlass.splashParticles, leftCollisionPos, collisionIntensity * 1.5, collisionDirection.clone().negate());
-  triggerSplash(rightGlass.splashParticles, rightCollisionPos, collisionIntensity * 1.5, collisionDirection);
+  for (let i = 0; i < splashParticleCount; i++) {
+    // Random position around rim
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 3 + Math.random() * 2;
+    const x = contactPoint.x + Math.cos(angle) * radius;
+    const z = contactPoint.z + Math.sin(angle) * radius;
+    
+    // Splash velocity - mostly upward with outward component
+    const velocity = new THREE.Vector3(
+      (Math.random() - 0.5) * splashVelocityMultiplier * 0.7,
+      Math.random() * splashVelocityMultiplier,
+      (Math.random() - 0.5) * splashVelocityMultiplier * 0.7
+    );
 
-  // Reduce liquid level more noticeably
-  leftGlass.liquidLevel = Math.max(0.4, leftGlass.liquidLevel - (collisionIntensity * 0.15));
-  rightGlass.liquidLevel = Math.max(0.4, rightGlass.liquidLevel - (collisionIntensity * 0.15));
+    // Left glass splash
+    triggerSplash(leftGlass.splashParticles, 
+      new THREE.Vector3(
+        x,
+        contactPoint.y - rimHeight * 0.3 + Math.random() * rimHeight * 0.6,
+        z
+      ),
+      collisionIntensity * (0.7 + Math.random() * 0.6),
+      velocity,
+      leftGlass.object.rotation
+    );
 
-  // Visual feedback - push cups back
-  const separationSpeed = currentSpeed * 1.5 * collisionIntensity;
-  
-  leftGlass.physicsBody.velocity.set(-separationSpeed, separationSpeed * 0.3, 0); // Add slight upward motion
-  rightGlass.physicsBody.velocity.set(separationSpeed, separationSpeed * 0.3, 0);
-  
-  // Play sound
-  // new Audio('./src/clink.mp3').play().catch(console.error);
-  
-  // Temporarily reduce gravity for bounce effect
+    // Right glass splash
+    triggerSplash(rightGlass.splashParticles,
+      new THREE.Vector3(
+        x,
+        contactPoint.y - rimHeight * 0.3 + Math.random() * rimHeight * 0.6,
+        z
+      ),
+      collisionIntensity * (0.7 + Math.random() * 0.6),
+      velocity.clone().multiplyScalar(0.9),
+      rightGlass.object.rotation
+    );
+  }
+
+  // Animate liquid level drop realistically
+  const liquidReduction = collisionIntensity * 0.25;
+  const newLeftLevel = Math.max(0.3, leftGlass.liquidLevel - liquidReduction);
+  const newRightLevel = Math.max(0.3, rightGlass.liquidLevel - liquidReduction);
+
+  // Easing function for smooth animation
+  function easeOutQuad(t: number) {
+    return t * (2 - t);
+  }
+
+  // Animate liquid and foam together
+  const animateLiquidAndFoam = (glass: any, targetLevel: number) => {
+    const startTime = Date.now();
+    const duration = 1200; // ms
+    const startLevel = glass.liquidLevel;
+    const startFoamHeight = glass.foamMesh?.position.y || 0;
+
+    const update = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const easedProgress = easeOutQuad(progress);
+      
+      // Update liquid level
+      glass.liquidLevel = startLevel + (targetLevel - startLevel) * easedProgress;
+      
+      // Update foam position to match liquid surface
+      if (glass.foamMesh) {
+        const targetFoamHeight = glass.liquidLevel * glass.glassHeight;
+        glass.foamMesh.position.y = targetFoamHeight;
+        
+        // Add slight bobbing motion
+        glass.foamMesh.position.y += Math.sin(Date.now() * 0.008) * 0.15;
+      }
+
+      if (progress < 1) {
+        requestAnimationFrame(update);
+      }
+    };
+    update();
+  };
+
+  animateLiquidAndFoam(leftGlass, newLeftLevel);
+  animateLiquidAndFoam(rightGlass, newRightLevel);
+
+  // Create bubble effects
+  const createBubbles = (glass: any) => {
+    if (!glass.foamMesh) return;
+    
+    const bubbleCount = Math.floor(collisionIntensity * 30);
+    const glassWidth = 8;
+    const glassDepth = 8;
+
+    for (let i = 0; i < bubbleCount; i++) {
+      setTimeout(() => {
+        const size = 0.2 + Math.random() * 0.4;
+        const bubble = new THREE.Mesh(
+          new THREE.SphereGeometry(size, 8, 8),
+          new THREE.MeshPhongMaterial({ 
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.8,
+            specular: 0x111111,
+            shininess: 30
+          })
+        );
+
+        // Position at random point in liquid
+        bubble.position.set(
+          (Math.random() - 0.5) * glassWidth * 0.8,
+          (glass.liquidLevel - 0.1) * glass.glassHeight,
+          (Math.random() - 0.5) * glassDepth * 0.8
+        );
+
+        glass.object.add(bubble);
+
+        // Animate bubble rising
+        const riseSpeed = 0.3 + Math.random() * 0.4;
+        const spinSpeed = (Math.random() - 0.5) * 0.02;
+        const startTime = Date.now();
+        const duration = 2000 + Math.random() * 1000;
+
+        const animateBubble = () => {
+          const elapsed = Date.now() - startTime;
+          if (elapsed > duration) {
+            glass.object.remove(bubble);
+            return;
+          }
+
+          const progress = elapsed / duration;
+          bubble.position.y += riseSpeed * 0.1;
+          bubble.rotation.y += spinSpeed;
+          bubble.scale.multiplyScalar(1.002);
+          bubble.material.opacity = 0.8 * (1 - progress);
+
+          requestAnimationFrame(animateBubble);
+        };
+        animateBubble();
+      }, Math.random() * 800);
+    }
+  };
+
+  createBubbles(leftGlass);
+  createBubbles(rightGlass);
+
+  // ==================== GLASS PHYSICS ====================
+  // Calculate rebound forces
+  const separationSpeed = currentSpeed * 2.5 * collisionIntensity;
+  const upwardForce = separationSpeed * 0.6 * collisionIntensity;
+  const rotationalForce = collisionIntensity * 3;
+
+  // Apply velocities with randomness for realism
+  leftGlass.physicsBody.velocity.set(
+    -separationSpeed * (0.85 + Math.random() * 0.3),
+    upwardForce * (0.7 + Math.random() * 0.6),
+    (Math.random() - 0.5) * separationSpeed * 0.3
+  );
+
+  rightGlass.physicsBody.velocity.set(
+    separationSpeed * (0.85 + Math.random() * 0.3),
+    upwardForce * (0.7 + Math.random() * 0.6),
+    (Math.random() - 0.5) * separationSpeed * 0.3
+  );
+
+  // Add rotational force
+  leftGlass.physicsBody.angularVelocity.set(
+    (Math.random() - 0.5) * rotationalForce * 0.5,
+    (Math.random() - 0.5) * rotationalForce * 0.5,
+    -rotationalForce * (0.8 + Math.random() * 0.4)
+  );
+
+  rightGlass.physicsBody.angularVelocity.set(
+    (Math.random() - 0.5) * rotationalForce * 0.5,
+    (Math.random() - 0.5) * rotationalForce * 0.5,
+    rotationalForce * (0.8 + Math.random() * 0.4)
+  );
+
+  // Temporary gravity reduction for bounce effect
   const currentGravity = world.gravity.y;
-  world.gravity.set(0, currentGravity * 0.2, 0);
-  
+  world.gravity.set(0, currentGravity * 0.08, 0);
+
+  // Restore gravity after short delay
   setTimeout(() => {
-    world.gravity.set(0, currentGravity, 0);
-    setTimeout(resetAnimation, 5500);
+    world.gravity.set(0, currentGravity * 0.3, 0);
+    
+    setTimeout(() => {
+      world.gravity.set(0, currentGravity * 0.6, 0);
+      
+      setTimeout(() => {
+        world.gravity.set(0, currentGravity, 0);
+        
+        // Auto-reset after everything settles
+        setTimeout(resetAnimation, 9000);
+      }, 200);
+    }, 200);
   }, 200);
+
+  // Play collision sound if available
+  try {
+    const clinkSound = new Audio('./assets/clink.mp3');
+    clinkSound.volume = Math.min(collisionIntensity * 0.7, 1);
+    clinkSound.play().catch(e => console.log("Audio error:", e));
+  } catch (e) {
+    console.log("Couldn't play sound:", e);
+  }
 }
 
 function syncPhysicsToGraphics(mesh: THREE.Object3D, body: CANNON.Body) {
