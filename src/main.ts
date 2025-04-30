@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import createBeer from "./beer";
 
 // Honky tonk music
-const audio = new Audio("./src/honky_tonk.mp3");
+const audio = new Audio("honky_tonk.wav");
 audio.play();
 
 const targetPositionX: number = -10;
