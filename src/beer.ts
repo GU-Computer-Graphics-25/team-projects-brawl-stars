@@ -2,6 +2,11 @@ import * as THREE from "three";
 import * as CANNON from 'cannon-es';
 import { createFoamParticles, createSplashParticles } from './particles';
 
+// Import textures using ES6 imports (requires types declaration)
+import beerColorTexture from './textures/beer_color.jpg';
+import beerNormalMap from './textures/beer_normal.jpg';
+import foamTexture from './textures/beer_foam.jpg';
+
 interface ParticleUserData {
   velocity: THREE.Vector3;
   lifetime: number;
@@ -25,13 +30,31 @@ interface BeerObject {
   spillStartTime: number;
 }
 
-
 export default function createBeer(scene: THREE.Scene, world: CANNON.World): BeerObject {
   const beerGroup = new THREE.Group();
   const glassHeight = 30;
   const beerHeight = 25;
   const glassThickness = 0.5;
   
+  // Texture loader with error handling
+  const textureLoader = new THREE.TextureLoader();
+  
+  // Load textures
+  const beerTex = textureLoader.load(beerColorTexture);
+  const beerNorm = textureLoader.load(beerNormalMap);
+  const foamTex = textureLoader.load(foamTexture);
+  
+  // Configure texture wrapping
+  beerTex.wrapS = beerTex.wrapT = THREE.RepeatWrapping;
+  beerNorm.wrapS = beerNorm.wrapT = THREE.RepeatWrapping;
+  foamTex.wrapS = foamTex.wrapT = THREE.RepeatWrapping;
+  
+  // Set texture repeating based on glass size
+  const textureRepeat = 2;
+  beerTex.repeat.set(textureRepeat, textureRepeat);
+  beerNorm.repeat.set(textureRepeat, textureRepeat);
+  foamTex.repeat.set(textureRepeat, textureRepeat);
+
   // Glass Material
   const glassMaterial = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
@@ -68,8 +91,10 @@ export default function createBeer(scene: THREE.Scene, world: CANNON.World): Bee
   handle.rotation.z = (3 * Math.PI) / 2;
   handle.position.x = 10;
 
-  // Beer Liquid
+  // Beer Liquid with texture
   const beerMaterial = new THREE.MeshPhysicalMaterial({
+    map: beerTex,
+    normalMap: beerNorm,
     color: 0xebc100,
     transmission: 0.2,
     roughness: 0.3,
@@ -85,8 +110,9 @@ export default function createBeer(scene: THREE.Scene, world: CANNON.World): Bee
   beer.position.y = beerHeight / 2 - 10;
   beer.name = "beerLiquid";
 
-  // Foam
+  // Foam with texture
   const foamMaterial = new THREE.MeshPhysicalMaterial({
+    map: foamTex,
     color: 0xfff5e1,
     roughness: 0.7,
     transparent: true,
@@ -125,7 +151,7 @@ export default function createBeer(scene: THREE.Scene, world: CANNON.World): Bee
   const activeParticles: THREE.Mesh[] = [];
   const foamBubbles: THREE.Mesh[] = [];
 
-  // Assemble the mug exactly as before
+  // Assemble the mug
   beerGroup.add(outerGlass, innerGlass, handle, beer, foam);
   scene.add(beerGroup);
 
@@ -147,17 +173,29 @@ export default function createBeer(scene: THREE.Scene, world: CANNON.World): Bee
 }
 
 export function updateBeer(beerObj: BeerObject, time: number, delta: number) {
-  // Update liquid level and position (maintains original behavior)
+  // Update liquid level and position
   beerObj.beerMesh.scale.y = beerObj.liquidLevel;
   beerObj.beerMesh.position.y = (beerObj.originalBeerHeight * beerObj.liquidLevel)/2 - 10;
   
-  // FOAM IMPROVEMENTS - Now properly tracks liquid level
+  // Update foam position
   beerObj.foamMesh.position.y = beerObj.beerMesh.position.y + (beerObj.originalBeerHeight * beerObj.liquidLevel)/2;
+
+  // Animate beer texture
+  if (beerObj.beerMesh.material instanceof THREE.MeshPhysicalMaterial) {
+    const material = beerObj.beerMesh.material;
+    if (material.map) material.map.offset.y -= delta * 0.05;
+    if (material.normalMap) material.normalMap.offset.y -= delta * 0.03;
+  }
+
+  // Animate foam texture
+  if (beerObj.foamMesh.material instanceof THREE.MeshPhysicalMaterial && beerObj.foamMesh.material.map) {
+    beerObj.foamMesh.material.map.offset.y += delta * 0.1;
+  }
 
   // Simulate fluid movement based on physics body velocity
   const velocity = beerObj.physicsBody.velocity.length();
   
-  // Make foam react to movement (original behavior)
+  // Make foam react to movement
   if (velocity > 0.1) {
     const waveIntensity = Math.min(velocity * 0.5, 1.5);
     const foamWave = Math.sin(time * 10) * waveIntensity * 0.1;
@@ -169,7 +207,7 @@ export function updateBeer(beerObj: BeerObject, time: number, delta: number) {
     beerObj.foamMesh.scale.y = 1;
   }
 
-  // Update active splash particles (original behavior)
+  // Update active splash particles
   for (let i = beerObj.activeParticles.length - 1; i >= 0; i--) {
     const particle = beerObj.activeParticles[i];
     const particleData = particle.userData as ParticleUserData;
@@ -201,21 +239,17 @@ export function updateBeer(beerObj: BeerObject, time: number, delta: number) {
 }
 
 export function triggerSplash(beerObj: BeerObject, intensity: number, direction?: THREE.Vector3) {
-  // Reduce liquid level based on collision intensity (original behavior)
   beerObj.liquidLevel = Math.max(0.3, beerObj.liquidLevel - (intensity * 0.1));
   
-  // Get splash position at rim of glass (original behavior)
   const splashPos = beerObj.object.position.clone();
   splashPos.y += 10;
 
-  // Create new particles (original behavior)
   const particleCount = Math.floor(15 * intensity);
   
   for (let i = 0; i < particleCount; i++) {
     let particle: THREE.Mesh;
     
     if (beerObj.splashParticles.children.length <= i) {
-      // Create new particle if needed
       const geometry = new THREE.SphereGeometry(0.3, 8, 8);
       const material = new THREE.MeshBasicMaterial({
         color: 0xebc100,
@@ -231,13 +265,11 @@ export function triggerSplash(beerObj: BeerObject, intensity: number, direction?
     particle.visible = true;
     particle.position.copy(splashPos);
     
-    // Random offset at glass rim (original behavior)
     const angle = Math.random() * Math.PI * 2;
     const radius = 9;
     particle.position.x += Math.cos(angle) * radius;
     particle.position.z += Math.sin(angle) * radius;
     
-    // Set initial velocity with directional bias (original behavior)
     const velocity = new THREE.Vector3(
       (Math.random() - 0.5) * 5 * intensity,
       Math.random() * 8 * intensity,
