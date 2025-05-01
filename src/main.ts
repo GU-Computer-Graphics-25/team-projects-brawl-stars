@@ -5,7 +5,7 @@ import createBeer, { updateBeer } from "./beer";
 import { updateSplashParticles, triggerSplash } from "./particles";
 
 //Honky tonk music
-const music = new Audio("honky_tonk.wav");
+const music = new Audio("./static/honky_tonk.wav");
 music.play();
 
 // Scene setup
@@ -632,7 +632,7 @@ function handleCollision(event?: {
 
   // Play collision sound if available
   try {
-    const clinkSound = new Audio('clink.mp3');
+    const clinkSound = new Audio('./static/clink.mp3');
     clinkSound.volume = Math.min(collisionIntensity * 0.7, 1);
     clinkSound.play().catch(e => console.log("Audio error:", e));
   } catch (e) {
