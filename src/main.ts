@@ -5,7 +5,7 @@ import createBeer, { updateBeer } from "./beer";
 import { updateSplashParticles, triggerSplash } from "./particles";
 
 //Honky tonk music
-const music = new Audio("honky_tonk.wav");
+const music = new Audio("./static/honky_tonk.wav");
 music.play();
 
 // Scene setup
