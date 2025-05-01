@@ -319,8 +319,8 @@ function resetAnimation() {
   leftGlass.liquidLevel = 1.0;
   rightGlass.liquidLevel = 1.0;
   
-  leftGlass.splashParticles.children.forEach(p => (p as THREE.Mesh).visible = false);
-  rightGlass.splashParticles.children.forEach(p => (p as THREE.Mesh).visible = false);
+  leftGlass.splashParticles.children.forEach((p: any) => (p as THREE.Mesh).visible = false);
+  rightGlass.splashParticles.children.forEach((p: any) => (p as THREE.Mesh).visible = false);
 
   // Remove collision listener
   world.removeEventListener('beginContact', collisionHandler);
@@ -632,7 +632,7 @@ function handleCollision(event?: {
 
   // Play collision sound if available
   try {
-    const clinkSound = new Audio('clink.mp3');
+    const clinkSound = new Audio('./assets/clink.mp3');
     clinkSound.volume = Math.min(collisionIntensity * 0.7, 1);
     clinkSound.play().catch(e => console.log("Audio error:", e));
   } catch (e) {
