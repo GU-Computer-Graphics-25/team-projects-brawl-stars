@@ -31,6 +31,13 @@ module.exports = {
           filename: 'textures/[name][ext]',
         },
       },
+      {
+        test: /\.(mp3|wav)$/,
+        type: 'asset/resource',
+        generator: {
+          filename: 'sounds/[name][ext]'
+        },
+      }
     ],
   },
   resolve: {
